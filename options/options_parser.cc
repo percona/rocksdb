@@ -318,6 +318,11 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
       if (!s.ok()) {
         return s;
       }
+      if (name == "comparator") {
+        if (value == "RocksDB_SE_v3.10") value = "leveldb.BytewiseComparator";
+        if (value == "rev:RocksDB_SE_v3.10")
+          value = "rocksdb.ReverseBytewiseComparator";
+      }
       opt_map.insert({name, value});
     }
   }
