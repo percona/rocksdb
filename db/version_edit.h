@@ -697,6 +697,8 @@ class VersionEdit {
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
  private:
+  friend class VersionEditHandler;
+
   bool GetLevel(Slice* input, int* level, const char** msg);
 
   const char* DecodeNewFile4From(Slice* input);

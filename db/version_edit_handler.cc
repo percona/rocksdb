@@ -213,6 +213,10 @@ Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
   }
   if (s.ok()) {
     assert(cfd != nullptr);
+    if (edit.comparator_ == "RocksDB_SE_v3.10")
+      edit.comparator_ = "leveldb.BytewiseComparator";
+    if (edit.comparator_ == "rev:RocksDB_SE_v3.10")
+      edit.comparator_ = "rocksdb.ReverseBytewiseComparator";
     s = ExtractInfoFromVersionEdit(*cfd, edit);
   }
   return s;
