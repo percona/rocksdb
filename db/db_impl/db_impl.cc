@@ -5760,9 +5760,8 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
-                                mutable_db_options_, file_options_, &snapshots_,
-                                arg.options, &directories_, &event_logger_,
-                                io_tracer_);
+                                file_options_, &snapshots_, arg.options,
+                                &directories_, &event_logger_, io_tracer_);
   }
 
   // TODO(yanqin) maybe make jobs run in parallel
@@ -5893,7 +5892,6 @@ Status DBImpl::IngestExternalFiles(
         if (!status.ok()) {
           break;
         }
-        ingestion_jobs[i].RegisterRange();
       }
     }
     if (status.ok()) {
@@ -5948,10 +5946,6 @@ Status DBImpl::IngestExternalFiles(
         versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
         versions_->SetLastSequence(last_seqno + consumed_seqno_count);
       }
-    }
-
-    for (auto& job : ingestion_jobs) {
-      job.UnregisterRange();
     }
 
     if (status.ok()) {
@@ -6439,6 +6433,13 @@ void DBImpl::NotifyOnExternalFileIngested(
     for (const auto& listener : immutable_db_options_.listeners) {
       listener->OnExternalFileIngested(this, info);
     }
+  }
+}
+
+void DBImpl::WaitForIngestFile() {
+  mutex_.AssertHeld();
+  while (num_running_ingest_file_ > 0) {
+    bg_cv_.Wait();
   }
 }
 

@@ -2150,6 +2150,10 @@ class DBImpl : public DB {
                           JobContext* job_context, LogBuffer* log_buffer,
                           CompactionJobInfo* compaction_job_info);
 
+  // Wait for current IngestExternalFile() calls to finish.
+  // REQUIRES: mutex_ held
+  void WaitForIngestFile();
+
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();

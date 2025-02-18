@@ -2059,9 +2059,7 @@ struct IngestExternalFileOptions {
   // that where created before the file was ingested.
   bool snapshot_consistency = true;
   // If set to false, IngestExternalFile() will fail if the file key range
-  // overlaps with existing keys or tombstones or output of ongoing compaction
-  // during file ingestion in the DB (the conditions under which a global_seqno
-  // must be assigned to the ingested file).
+  // overlaps with existing keys or tombstones in the DB.
   bool allow_global_seqno = true;
   // If set to false and the file key range overlaps with the memtable key range
   // (memtable flush required), IngestExternalFile will fail.

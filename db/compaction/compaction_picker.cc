@@ -1144,11 +1144,7 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
          c->output_level() == 0 ||
          !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level(),
                                           c->GetPenultimateLevel()));
-  // CompactionReason::kExternalSstIngestion's start level is just a placeholder
-  // number without actual meaning as file ingestion technically does not have
-  // an input level like other compactions
-  if ((c->start_level() == 0 &&
-       c->compaction_reason() != CompactionReason::kExternalSstIngestion) ||
+  if (c->start_level() == 0 ||
       ioptions_.compaction_style == kCompactionStyleUniversal) {
     level0_compactions_in_progress_.insert(c);
   }
