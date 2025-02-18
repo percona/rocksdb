@@ -1332,12 +1332,6 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[RefitLevel] waiting for background threads to stop");
-    // TODO(hx235): remove `Enable/DisableManualCompaction` and
-    // `Continue/PauseBackgroundWork` once we ensure registering RefitLevel()'s
-    // range is sufficient (if not, what else is needed) for avoiding range
-    // conflicts with other activities (e.g, compaction, flush) that are
-    // currently avoided by `Enable/DisableManualCompaction` and
-    // `Continue/PauseBackgroundWork`.
     DisableManualCompaction();
     s = PauseBackgroundWork();
     if (s.ok()) {
@@ -1398,6 +1392,13 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                                &manual_compaction_paused_)));
   {
     InstrumentedMutexLock l(&mutex_);
+
+    // This call will unlock/lock the mutex to wait for current running
+    // IngestExternalFile() calls to finish.
+    WaitForIngestFile();
+
+    // We need to get current after `WaitForIngestFile`, because
+    // `IngestExternalFile` may add files that overlap with `input_file_names`
     auto* current = cfd->current();
     current->Ref();
 
@@ -1767,10 +1768,6 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
   InstrumentedMutexLock guard_lock(&mutex_);
 
-  auto* vstorage = cfd->current()->storage_info();
-  if (vstorage->LevelFiles(level).empty()) {
-    return Status::OK();
-  }
   // only allow one thread refitting
   if (refitting_level_) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1786,18 +1783,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     to_level = FindMinimumEmptyLevelFitting(cfd, mutable_cf_options, level);
   }
 
+  auto* vstorage = cfd->current()->storage_info();
   if (to_level != level) {
-    std::vector<CompactionInputFiles> input(1);
-    input[0].level = level;
-    // TODO (hx235): Only refit the output files in the current manual
-    // compaction instead of all the files in the output level
-    for (auto& f : vstorage->LevelFiles(level)) {
-      input[0].files.push_back(f);
-    }
-    InternalKey refit_level_smallest;
-    InternalKey refit_level_largest;
-    cfd->compaction_picker()->GetRange(input[0], &refit_level_smallest,
-                                       &refit_level_largest);
     if (to_level > level) {
       if (level == 0) {
         refitting_level_ = false;
@@ -1811,18 +1798,10 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           return Status::NotSupported(
               "Levels between source and target are not empty for a move.");
         }
-        if (cfd->RangeOverlapWithCompaction(refit_level_smallest.user_key(),
-                                            refit_level_largest.user_key(),
-                                            l)) {
-          refitting_level_ = false;
-          return Status::NotSupported(
-              "Levels between source and target "
-              "will have some ongoing compaction's output.");
-        }
       }
     } else {
       // to_level < level
-      if (to_level == 0 && input[0].files.size() > 1) {
+      if (to_level == 0 && vstorage->NumLevelFiles(level) > 1) {
         refitting_level_ = false;
         return Status::Aborted(
             "Moving more than 1 file from non-L0 to L0 is not allowed as it "
@@ -1835,40 +1814,12 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           return Status::NotSupported(
               "Levels between source and target are not empty for a move.");
         }
-        if (cfd->RangeOverlapWithCompaction(refit_level_smallest.user_key(),
-                                            refit_level_largest.user_key(),
-                                            l)) {
-          refitting_level_ = false;
-          return Status::NotSupported(
-              "Levels between source and target "
-              "will have some ongoing compaction's output.");
-        }
       }
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Before refitting:\n%s", cfd->GetName().c_str(),
                     cfd->current()->DebugString().data());
 
-    std::unique_ptr<Compaction> c(new Compaction(
-        vstorage, *cfd->ioptions(), mutable_cf_options, mutable_db_options_,
-        {input}, to_level,
-        MaxFileSizeForLevel(
-            mutable_cf_options, to_level,
-            cfd->ioptions()
-                ->compaction_style) /* output file size limit, not applicable */
-        ,
-        LLONG_MAX /* max compaction bytes, not applicable */,
-        0 /* output path ID, not applicable */, mutable_cf_options.compression,
-        mutable_cf_options.compression_opts,
-        mutable_cf_options.default_write_temperature,
-        0 /* max_subcompactions, not applicable */,
-        {} /* grandparents, not applicable */, false /* is manual */,
-        "" /* trim_ts */, -1 /* score, not applicable */,
-        false /* is deletion compaction, not applicable */,
-        false /* l0_files_might_overlap, not applicable */,
-        CompactionReason::kRefitLevel));
-    cfd->compaction_picker()->RegisterCompaction(c.get());
-    TEST_SYNC_POINT("DBImpl::ReFitLevel:PostRegisterCompaction");
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
 
@@ -1890,9 +1841,6 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     Status status = versions_->LogAndApply(cfd, mutable_cf_options,
                                            read_options, write_options, &edit,
                                            &mutex_, directories_.GetDbDir());
-    c->MarkFilesBeingCompacted(false);
-    cfd->compaction_picker()->UnregisterCompaction(c.get());
-    c.reset();
 
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 
@@ -2142,9 +2090,11 @@ Status DBImpl::RunManualCompaction(
                manual.begin, manual.end, &manual.manual_end, &manual_conflict,
                max_file_num_to_ignore, trim_ts)) == nullptr &&
           manual_conflict))) {
-      if (!manual.done) {
-        bg_cv_.Wait();
-      }
+      // exclusive manual compactions should not see a conflict during
+      // CompactRange
+      assert(!exclusive || !manual_conflict);
+      // Running either this or some other manual compaction
+      bg_cv_.Wait();
       if (manual_compaction_paused_ > 0 && scheduled && !unscheduled) {
         assert(thread_pool_priority != Env::Priority::TOTAL);
         // unschedule all manual compactions
@@ -3409,6 +3359,10 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
   {
     InstrumentedMutexLock l(&mutex_);
 
+    // This call will unlock/lock the mutex to wait for current running
+    // IngestExternalFile() calls to finish.
+    WaitForIngestFile();
+
     num_running_compactions_++;
 
     std::unique_ptr<std::list<uint64_t>::iterator>
@@ -4096,6 +4050,11 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompactionState* m) {
 }
 
 bool DBImpl::ShouldntRunManualCompaction(ManualCompactionState* m) {
+  if (num_running_ingest_file_ > 0) {
+    // We need to wait for other IngestExternalFile() calls to finish
+    // before running a manual compaction.
+    return true;
+  }
   if (m->exclusive) {
     return (bg_bottom_compaction_scheduled_ > 0 ||
             bg_compaction_scheduled_ > 0);
