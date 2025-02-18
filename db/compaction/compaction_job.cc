@@ -99,8 +99,6 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ForcedBlobGC";
     case CompactionReason::kRoundRobinTtl:
       return "RoundRobinTtl";
-    case CompactionReason::kRefitLevel:
-      return "RefitLevel";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:

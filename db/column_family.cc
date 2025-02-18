@@ -1267,7 +1267,6 @@ Compaction* ColumnFamilyData::CompactRange(
   if (result != nullptr) {
     result->FinalizeInputInfo(current_);
   }
-  TEST_SYNC_POINT("ColumnFamilyData::CompactRange:Return");
   return result;
 }
 

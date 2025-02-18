@@ -2201,6 +2201,10 @@ class DBImpl : public DB {
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
                            bool track);
 
+  // Wait for current IngestExternalFile() calls to finish.
+  // REQUIRES: mutex_ held
+  void WaitForIngestFile();
+
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();
