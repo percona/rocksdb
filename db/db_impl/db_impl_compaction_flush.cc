@@ -1851,6 +1851,12 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       }
     } else {
       // to_level < level
+      if (to_level == 0 && vstorage->NumLevelFiles(level) > 1) {
+        refitting_level_ = false;
+        return Status::Aborted(
+            "Moving more than 1 file from non-L0 to L0 is not allowed as it "
+            "does not bring any benefit to read nor write throughput.");
+      }
       // Check levels are empty for a trivial move
       for (int l = to_level; l < level; l++) {
         if (vstorage->NumLevelFiles(l) > 0) {
