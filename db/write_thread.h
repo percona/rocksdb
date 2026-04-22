@@ -134,8 +134,9 @@ class WriteThread {
     Status status;
     Status callback_status;  // status returned by callback->Callback()
 
-    std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
-    std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
+    alignas(std::mutex) char state_mutex_bytes[sizeof(std::mutex)];
+    alignas(std::condition_variable) char state_cv_bytes[sizeof(
+        std::condition_variable)];
     Writer* link_older;  // read/write only before linking, or as leader
     Writer* link_newer;  // lazy, read/write only before linking, or as leader
 

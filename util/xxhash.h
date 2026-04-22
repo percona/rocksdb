@@ -2065,7 +2065,9 @@ static int XXH_isLittleEndian(void)
 
 #elif defined(__cplusplus) && (__cplusplus > 202002L)
 /* C++23 and future versions have std::unreachable() */
+}  /* extern "C" */
 #  include <utility> /* std::unreachable() */
+extern "C" {
 #  define XXH_UNREACHABLE() std::unreachable()
 
 #elif XXH_HAS_BUILTIN(__builtin_unreachable)
