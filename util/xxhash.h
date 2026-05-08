@@ -2064,11 +2064,24 @@ static int XXH_isLittleEndian(void)
 #  define XXH_UNREACHABLE() unreachable()
 
 #elif defined(__cplusplus) && (__cplusplus > 202002L)
-/* C++23 and future versions have std::unreachable() */
+/* C++23 mode. std::unreachable() needs a recent standard library
+ * (libstdc++ 13+, libc++ 17+). Probe <version>'s __cpp_lib_unreachable
+ * feature-test macro; older libstdc++/libc++ versions used in C++23 mode
+ * (e.g. gcc-11/12) don't provide it. Fall back to __builtin_unreachable()
+ * when unavailable. */
 }  /* extern "C" */
-#  include <utility> /* std::unreachable() */
+#  include <version>
+#  if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+#    include <utility>
+#  endif
 extern "C" {
-#  define XXH_UNREACHABLE() std::unreachable()
+#  if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+#    define XXH_UNREACHABLE() std::unreachable()
+#  elif XXH_HAS_BUILTIN(__builtin_unreachable)
+#    define XXH_UNREACHABLE() __builtin_unreachable()
+#  else
+#    define XXH_UNREACHABLE()
+#  endif
 
 #elif XXH_HAS_BUILTIN(__builtin_unreachable)
 #  define XXH_UNREACHABLE() __builtin_unreachable()
