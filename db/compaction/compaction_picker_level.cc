@@ -277,21 +277,22 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   }
 
   // TTL Compaction
-  if (ioptions_.compaction_pri == kRoundRobin &&
-      !vstorage_->ExpiredTtlFiles().empty()) {
+  if (ioptions_.compaction_pri == kRoundRobin) {
     auto expired_files = vstorage_->ExpiredTtlFiles();
-    // the expired files list should already be sorted by level
-    start_level_ = expired_files.front().first;
+    if (!expired_files.empty()) {
+      // the expired files list should already be sorted by level
+      start_level_ = expired_files.front().first;
 #ifndef NDEBUG
-    for (const auto& file : expired_files) {
-      assert(start_level_ <= file.first);
-    }
+      for (const auto& file : expired_files) {
+        assert(start_level_ <= file.first);
+      }
 #endif
-    if (start_level_ > 0) {
-      output_level_ = start_level_ + 1;
-      if (PickFileToCompact()) {
-        compaction_reason_ = CompactionReason::kRoundRobinTtl;
-        return;
+      if (start_level_ > 0) {
+        output_level_ = start_level_ + 1;
+        if (PickFileToCompact()) {
+          compaction_reason_ = CompactionReason::kRoundRobinTtl;
+          return;
+        }
       }
     }
   }
