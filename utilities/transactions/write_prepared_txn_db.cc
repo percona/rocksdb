@@ -1076,6 +1076,12 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
   if (!db_impl_->shutting_down_) {
     db_impl_->CancelAllBackgroundWork(true /*wait*/);
   }
+  // Prepared transactions may intentionally survive a clean close for later
+  // recovery. Discard their in-memory sequence tracking after background work
+  // has stopped; leave the WAL prepare records and transaction contents intact.
+  while (!prepared_txns_.empty()) {
+    prepared_txns_.pop();
+  }
 }
 
 void SubBatchCounter::InitWithComp(const uint32_t cf) {
